@@ -37,6 +37,7 @@ unsigned int rxbuffA;
 uint32_t received_size = 0;
 uint32_t file_size = 0;
 char file[1024];
+tDMAControlTable* ct;
 
 typedef enum uart_states{
     IDLE,
@@ -118,7 +119,6 @@ void dma_init(){
     Alternate           Base + 0x200 + (Channel * 16)   Base + 0x200 + (8 * 16) = Base + 0x280
     */
 
-    tDMAControlTable* ct;
     ct = (tDMAControlTable*)HWREG(UDMA_CTLBASE);
 
     // configure control structures
@@ -154,30 +154,25 @@ void dma_init(){
 
 }
 
+void inline recv_file(char* buff) {
+        memcpy(file + received_size, buff, sizeof(buff));
+}
 
-void inline buffA_process(){
-    memcpy(file + received_size, bufferA, sizeof(bufferA));
-    UARTprintf("\nBUFFER A: %s",bufferA);
-}
-void inline buffB_process(){
-    memcpy(file + received_size, bufferB, sizeof(bufferB));
-    UARTprintf("\nBUFFER B: %s",bufferB);
-}
 void UART0_IntHandler(void){
     uint32_t status = UARTIntStatus(UART0_BASE, true); // get interrupts status
     UARTIntClear(UART0_BASE, status); //  clear those interrupts
 
     //check the mode of primary
-    tDMAControlTable* ct;
     ct = (tDMAControlTable*)HWREG(UDMA_CTLBASE);
 
     uint8_t mode = ct[8].ui32Control & 0x00000007; //extarct first three bits - mode
     dma_state = RECEIVING;
     if(mode == UDMA_MODE_STOP){
         rxbuffA++;
-
-        buffA_process(); //process data recieved
-        received_size += 128;
+        if(dma_state == RECEIVING){
+            recv_file(); //process data recieved
+            received_size += 128;
+        }
         //resrt transfer
         ct[0 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
         ct[0 + 8].pvDstEndAddr = (void*)(bufferA + TXSIZE-1);//primary dest pointer
@@ -192,9 +187,10 @@ void UART0_IntHandler(void){
 
     if(mode == UDMA_MODE_STOP){
         rxbuffB++;
-
-        buffB_process(); //process data recieved
-        received_size += 128;
+        if(dma_state == RECEIVING){
+            recv_file(); //process data recieved
+            received_size += 128;
+        }
         //resrt transfer
         ct[32 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
         ct[32 + 8].pvDstEndAddr = (void*)(bufferB + TXSIZE-1);//primary dest pointer
@@ -209,10 +205,6 @@ void UART0_IntHandler(void){
         dma_state = RECV_COMPLETE;
         HWREG(UDMA_ENACLR) = (1 << 8); // Disable DMA
     }
-}
-
-void request_file_info(){
-UARTwrite("FIL_SIZE", 9);
 }
 
 void buttons(){
@@ -253,10 +245,13 @@ int main(void)
     dma_state = INIT;
     strncpy(command, "FILE_INFO",10);
     UARTwrite(command, sizeof(command));
-    while(bufferA[0] == 0);
+    while(bufferA[0] == 0); // wait until data is recv
     file_size = convert(bufferA);
     //RECV the file size and store in file_size variable
     crc = convert(bufferA + (uint32_t)(log10(file_size) + 2)); //log10 + 1 - no of bytes, skip s- plus one
+    strncpy(command, "SEND_FILE", 10);
+    UARTwrite(command, sizeof(command));
+    dma_state = RECEIVING;
     //receive the crc and store in crc variable
     while(1){
 
