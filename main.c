@@ -251,6 +251,7 @@ int main(void)
     crc = convert(bufferA + (uint32_t)(log10(file_size) + 2)); //log10 + 1 - no of bytes, skip s- plus one
     strncpy(command, "SEND_FILE", 10);
     UARTwrite(command, sizeof(command));
+    memset(bufferA, 0 ,sizeof(bufferA)); // clear the file size and crc before receiving the file
     dma_state = RECEIVING;
     //receive the crc and store in crc variable
     while(1){
