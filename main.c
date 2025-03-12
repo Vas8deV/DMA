@@ -19,7 +19,7 @@
 /**
  * main.c
  */
-#define TXSIZE 128
+#define TXSIZE 1024
 #if TXSIZE > 1024
 #undef TXSIZE
 #define TXSIZE 1024
