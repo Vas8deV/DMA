@@ -76,7 +76,7 @@ void configureGPIOINPUT(void){
 
 void CRC_init(){
     SysCtlPeripheralEnable(SYSCTL_PERIPH_CCM0);
-    CRCConfigSet(CCM0_BASE, CRC_CFG_INIT_0|CRC_CFG_SIZE_8BIT|CRC_CFG_TYPE_P1021);
+    CRCConfigSet(CCM0_BASE, CRC_CFG_INIT_0 | CRC_CFG_SIZE_32BIT | CRC_CFG_TYPE_P4C11DB7);
 }
 
 
