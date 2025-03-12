@@ -30,13 +30,13 @@ uint8_t count;
 #define DATA_ALIGN(var, align)  __attribute__((aligned(align))) var
 #pragma DATA_ALIGN(ControlTable, 1024)
 uint8_t ControlTable[1024];
-uint8_t bufferA[128] = {0};
-uint8_t bufferB[128] = {0};
+uint8_t bufferA[TXSIZE] = {0};
+uint8_t bufferB[TXSIZE] = {0};
 unsigned int rxbuffB;
 unsigned int rxbuffA;
 uint32_t received_size = 0;
 uint32_t file_size = 0;
-char file[1024];
+char file[1024]; // max 1mb for 2 firmwares
 tDMAControlTable* ct;
 
 typedef enum uart_states{
@@ -59,6 +59,7 @@ void configureUART0(void)
     SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
     UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC); //16 Mhz
     GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0|GPIO_PIN_1);
+    // assert dma request when buffer is half fill ie, 16/2 ->8 bytes
     UARTFIFOLevelSet(UART0_BASE, UART_FIFO_TX4_8, UART_FIFO_RX4_8); // used by udma for burst request
     UARTStdioConfig(0, 115200, 16000000);
 }
@@ -139,13 +140,13 @@ void dma_init(){
             (3 << 26) |  // SRCINC: No Increment (UART)
             (0 << 24) |  // SRCSIZE: 8-bit
             (3 << 14) |  // ARBSIZE: 8 Transfers
-            (TXSIZE-1 << 4) |  // XFERSIZE: 64 Transfers
+            (TXSIZE-1 << 4) |  // XFERSIZE:  Transfers
             (3 << 0);    // XFERMODE: Ping-Pong;//alt control mode
     ct[32 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//alt source pointer
     ct[32 + 8].pvDstEndAddr = (void*)(bufferB + TXSIZE-1);//alt dest pointer
 
     IntMasterEnable();
-    UARTIntEnable(UART0_BASE, UART_INT_DMARX);
+    UARTIntEnable(UART0_BASE, UART_INT_DMARX); //interruot when dma transfer until transfer size is completed
     IntEnable(INT_UART0);
 
     //enable channel, bit[n] - channel n
@@ -171,15 +172,15 @@ void UART0_IntHandler(void){
         rxbuffA++;
         if(dma_state == RECEIVING){
             recv_file(); //process data recieved
-            received_size += 128;
+            received_size += TXSIZE;
         }
         //resrt transfer
         ct[0 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
         ct[0 + 8].pvDstEndAddr = (void*)(bufferA + TXSIZE-1);//primary dest pointer
         ct[0 + 8].ui32Control =
                 (3 << 26) |  // SRCINC: No Increment (UART)
-                (2 << 14) |  // ARBSIZE: 4 Transfers
-                (63 << 4) |  // XFERSIZE: 64 Transfers
+                (3 << 14) |  // ARBSIZE: 8 Transfers
+                ((TXSIZE-1) << 4) |  // XFERSIZE:  Transfers size
                 (3 << 0);    // XFERMODE: Ping-Pong;//primary Control mode
     }
 
@@ -189,15 +190,15 @@ void UART0_IntHandler(void){
         rxbuffB++;
         if(dma_state == RECEIVING){
             recv_file(); //process data recieved
-            received_size += 128;
+            received_size += TXSIZE;
         }
         //resrt transfer
         ct[32 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
         ct[32 + 8].pvDstEndAddr = (void*)(bufferB + TXSIZE-1);//primary dest pointer
         ct[32 + 8].ui32Control =
                 (3 << 26) |  // SRCINC: No Increment (UART)
-                (2 << 14) |  // ARBSIZE: 4 Transfers
-                (63 << 4) |  // XFERSIZE: 64 Transfers
+                (3 << 14) |  // ARBSIZE: 8 Transfers
+                ((TXSIZE-1) << 4) |  // XFERSIZE: Transfers szie
                 (3 << 0);    // XFERMODE: Ping-Pong;//primary Control mode
     }
 
