@@ -38,6 +38,7 @@ uint32_t received_size = 0;
 uint32_t file_size = 0;
 char file[1024]; // max 1mb for 2 firmwares
 tDMAControlTable* ct;
+int bytes_left = 0;
 
 typedef enum uart_states{
     IDLE,
@@ -155,24 +156,35 @@ void dma_init(){
 
 }
 
-void inline recv_file(char* buff) {
-        memcpy(file + received_size, buff, sizeof(buff));
+void inline recv_file(char* buff, size_t s) {
+        memcpy(file + received_size, buff, s);
 }
 
 void UART0_IntHandler(void){
     uint32_t status = UARTIntStatus(UART0_BASE, true); // get interrupts status
     UARTIntClear(UART0_BASE, status); //  clear those interrupts
 
+    if (bytes_left == 0) {
+        dma_state = RECV_COMPLETE;
+        HWREG(UDMA_ENACLR) = (1 << 8); // Disable DMA
+        return; // Exit handler instead of break, since it's top-level
+    }
+    
     //check the mode of primary
     ct = (tDMAControlTable*)HWREG(UDMA_CTLBASE);
-
     uint8_t mode = ct[8].ui32Control & 0x00000007; //extarct first three bits - mode
     dma_state = RECEIVING;
     if(mode == UDMA_MODE_STOP){
         rxbuffA++;
         if(dma_state == RECEIVING){
-            recv_file(); //process data recieved
-            received_size += TXSIZE;
+            uint32_t bytes_copy = (bytes_left < TXSIZE)? bytes_left : TXSIZE;
+            recv_file(bufferA, bytes_copy);
+            received_data += bytes_copy;
+            if(bytes_left < TXSIZE){
+                bytes_left = 0;
+            } else {
+                bytes_left -= TXSIZE;
+            }
         }
         //resrt transfer
         ct[0 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
@@ -185,12 +197,18 @@ void UART0_IntHandler(void){
     }
 
     mode = ct[32 + 8].ui32Control & 0x00000007; //extarct first three bits - mode
-
+    dma_state = RECEIVING;
     if(mode == UDMA_MODE_STOP){
         rxbuffB++;
         if(dma_state == RECEIVING){
-            recv_file(); //process data recieved
-            received_size += TXSIZE;
+            uint32_t bytes_copy = (bytes_left < TXSIZE)? bytes_left : TXSIZE;
+            recv_file(bufferB, bytes_copy);
+            received_data += bytes_copy;
+            if(bytes_left < TXSIZE){
+                bytes_left = 0;
+            } else {
+                bytes_left -= TXSIZE;
+            }
         }
         //resrt transfer
         ct[32 + 8].pvSrcEndAddr = (void*)(UART0_BASE + UART_O_DR);//primary source pointer
@@ -248,7 +266,9 @@ int main(void)
     UARTwrite(command, sizeof(command));
     while(bufferA[0] == 0); // wait until data is recv
     file_size = convert(bufferA);
+    bytes_left = file_size;
     //RECV the file size and store in file_size variable
+    // how dta is recv, FILESIZEsCRCs , s is my dleimter here
     crc = convert(bufferA + (uint32_t)(log10(file_size) + 2)); //log10 + 1 - no of bytes, skip s- plus one
     strncpy(command, "SEND_FILE", 10);
     UARTwrite(command, sizeof(command));
